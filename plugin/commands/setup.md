@@ -56,6 +56,5 @@ Some boards need the user logged in before an application form opens. Explain `/
 Call `get_settings`. If `setup_needed` is still true, say which `missing` item is left and go back to it. Otherwise call `account` and say:
 
 - what was saved (sections, titles, countries, examples, photo),
-- their access: active, trial until a date, or none yet (and how to start one, if the `account` result gives a link),
-- their runs: how many of `runs.limit` are left, and when the trial ends or the count resets,
+- their plan (Free unless they bought one on the website) and its limits: `runs.limit` jobs a day and `max_agents` agents at once,
 - next: "Run `/job-hunt-ai:find-and-apply` to start your first run."

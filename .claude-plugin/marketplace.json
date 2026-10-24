@@ -1,6 +1,12 @@
 {
   "name": "job-hunt-ai",
-  "owner": { "name": "Nour Kanout", "url": "https://github.com/MNKanout" },
+  "owner": {
+    "name": "Nour Kanout",
+    "url": "https://github.com/MNKanout"
+  },
+  "metadata": {
+    "description": "Job Hunt AI: a team of Claude Code agents that hunts jobs for you. https://job-hunt-ai.syrwegian.com"
+  },
   "plugins": [
     {
       "name": "job-hunt-ai",

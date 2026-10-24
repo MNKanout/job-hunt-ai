@@ -1,71 +1,70 @@
 #!/usr/bin/env python3
 """scripts/build_html.py — render CV + cover letter HTML for one job.
 
-Two modes, always explicit — there is no default, so nothing can accidentally
-publish an unapproved document:
+Run by the plugin's builder agent. Every mode needs a job-app script token
+(from the `script_token` tool): the data comes from, and the events and the
+publish go to, the hosted job-app server as the logged-in user (see
+scripts/jobapp_api.py). There is no default mode, so nothing can
+accidentally publish an unapproved document:
 
-    python3 scripts/build_html.py <run_id> <job_id> --candidate [--dry-run]
-    python3 scripts/build_html.py <run_id> <job_id> --publish
-    python3 scripts/build_html.py <run_id> <job_id> --pdf
-    python3 scripts/build_html.py <run_id> <job_id> --discard-pdfs
+    python3 scripts/build_html.py <run_id> <job_id> --candidate [--dry-run] --token <token>
+    python3 scripts/build_html.py <run_id> <job_id> --publish --token <token>
+    python3 scripts/build_html.py <run_id> <job_id> --pdf --token <token>
+    python3 scripts/build_html.py <run_id> <job_id> --discard-pdfs --token <token>
 
-Every mode also takes `--token <script token>`: the Claude Code plugin's way
-in. The data then comes from, and the events and the publish go to, the
-hosted job-app server as the logged-in user (see scripts/jobapp_api.py), the
-build directory is job-app/builds in the working folder (JOBAPP_HOME overrides
-job-app), and the
-name and photo are the user's own. The server repeats the publish gate in
-the database before anything is uploaded.
+The build directory is job-app/builds in the working folder (JOBAPP_HOME
+overrides job-app), and the name, contact line and photo are the user's own.
 
---candidate renders the CV + cover letter from the latest Supabase content,
-saves the photo, prints both exact saved documents through headless Chrome, and
-returns structured evidence (content hashes + print measurements). It never
-uploads, never sets `jobs.cv_built`/`cover_letter_built`, and never logs a
-`completed` pipeline_events row — it logs a `candidate` row instead, with the
-evidence in `details`, so QA can read the real print measurements from the
-database rather than trusting a hand-typed summary. `--dry-run` (temp dir
-outside the repo, no DB writes) only makes sense together with `--candidate`.
+Printing: Claude Code's sandbox can refuse Chrome started from a script, so
+this script never prints. It names the pages to print and stops with
+`needs_print`; the agent prints them through the Playwright MCP server, which
+runs outside the sandbox, then runs the same command again, which finds the
+PDFs in job-app/.print and measures them.
+
+--candidate renders the CV + cover letter from the saved drafts, saves the
+photo, measures both exact saved documents' prints, and returns structured
+evidence (content hashes + print measurements). It never publishes and never
+logs a `completed` event: it logs a `candidate` event instead, with the
+evidence in `details`, so QA can read the real print measurements rather than
+trusting a hand-typed summary. `--dry-run` (temp dir, no events) only makes
+sense together with --candidate.
 
 --candidate and --publish are the builder's two tasks, and each reports itself
-to `pipeline_events` through scripts/log_event.py: `started` first, then one
-result — `candidate`, `completed`, or `failed`. Once `started` is written,
-every refusal and handled error writes `failed` before exiting, so the Office
-never shows a builder that is still working after it gave up. A candidate
-whose printing failed logs both: the `candidate` row keeps the evidence for
-QA, and the `failed` row after it is the outcome. --pdf and --discard-pdfs
-are errands for the submitter and log nothing.
+through the server's log_event tool: `started` first, then one result —
+`candidate`, `completed`, or `failed`. Once `started` is written, every
+refusal and handled error writes `failed` before exiting, so the Office never
+shows a builder that is still working after it gave up. A candidate whose
+printing failed logs both: the `candidate` row keeps the evidence for QA, and
+the `failed` row after it is the outcome. --pdf and --discard-pdfs are
+errands for the submitter and log nothing.
 
---publish requires the latest `qa_results` row for this job to be `pass` (or
-`warn` with no `severity: fail` issue) AND carry non-null `build_evidence`.
-It re-renders the exact same content from Supabase, hashes it, and requires
-an EXACT match against `build_evidence`'s hashes before touching anything —
-a stale QA row, or any CV/letter/photo change since QA ran, refuses to
-publish. It then re-runs the print gate on what it's about to publish and
-requires it to pass with the same measurements QA saw (not just "still
-under the limit" — any drift is treated as a change). Only then does it
-upload to Storage (a failed upload is fatal — it does not mark the job
-built) and flip `jobs.cv_built`/`cover_letter_built`.
+--publish requires the latest QA result for this job to be `pass` (or `warn`
+with no `severity: fail` issue) AND carry `build_evidence`. It re-renders the
+exact same content, hashes it, and requires an EXACT match against
+`build_evidence`'s hashes — a stale QA row, or any CV/letter/photo change
+since QA ran, refuses to publish. It then re-measures the print of what it is
+about to publish and requires the same measurements QA saw (not just "still
+under the limit" — any drift is treated as a change). Only then does it send
+both files to the server's publish_build tool, which repeats the gate in the
+database before it uploads them and marks the job built.
 
---pdf prints an already-published build to `<Name> - <Role> - <Company> - CV.pdf`
-and `... - Cover Letter.pdf`
-beside the local HTML, for the moment an application is actually sent. PDFs
-are never uploaded to Storage: the HTML is the stored artifact and a PDF can
-always be printed from it again. --pdf runs the same checks as --publish
-(QA approval, exact hashes, print gate, same measurements) but uploads
-nothing and changes no database row. --discard-pdfs removes the PDFs again
-once the application is sent. A candidate, a publish, or a refused --pdf
-also leaves no PDF behind, so a PDF on disk always matches approved HTML.
+--pdf keeps the measured prints as `<Name> - <Role> - <Company> - CV.pdf` and
+`... - Cover Letter.pdf` beside the local HTML, for the moment an application
+is actually sent. PDFs are never uploaded: the HTML is the stored artifact
+and a PDF can always be printed from it again. --pdf runs the same checks as
+--publish but sends nothing. --discard-pdfs removes the PDFs and their cached
+prints once the application is sent; it works without the server. A
+candidate, a publish, or a refused --pdf also leaves no PDF behind, so a PDF
+on disk always matches approved HTML.
 
-Hash-determinism note: the Jinja templates under scripts/templates/ render no
-timestamps or other run-varying data — output HTML is a pure function of
-(tailored_cvs.content, cover_letters.content, jobs.title, jobs.company, the
-template files, sources/cv/profile-photo.jpg). That's what makes "re-render
-from Supabase and compare hashes" a correct freshness check instead of a
-best-effort one: the SAME database content always renders to byte-identical
-HTML, so a hash match proves the content is unchanged and a mismatch proves
-it isn't. --publish relies on this rather than trusting on-disk candidate
-files, which may have been overwritten or deleted between candidate and
-publish.
+Hash-determinism note: the Jinja templates under templates/ render no
+timestamps or other run-varying data — output HTML is a pure function of the
+drafts, the job's title and company, the user's name and contact line, the
+template files and the photo. That's what makes "re-render and compare
+hashes" a correct freshness check instead of a best-effort one: the SAME
+content always renders to byte-identical HTML. --publish relies on this
+rather than trusting on-disk candidate files, which may have been overwritten
+or deleted between candidate and publish.
 
 Both modes write builds/<slug>-<date>/{cv.html,cover_letter.html,
 profile-photo.jpg,APPROVAL.json}. APPROVAL.json's `state`/`approved` fields
@@ -97,54 +96,30 @@ from pathlib import Path
 
 import print_script  # beside this file, in scripts/ and plugin/scripts/
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-VENV_DIR = PROJECT_ROOT / ".venv"
-VENV_PYTHON = VENV_DIR / "bin" / "python"
-TEMPLATES_DIR = PROJECT_ROOT / "scripts" / "templates"
-BUILDS_DIR = PROJECT_ROOT / "builds"
-PROFILE_PHOTO = PROJECT_ROOT / "sources" / "cv" / "profile-photo.jpg"
-# The owner's name and contact line for the local pipeline, from
-# config/owner.json (gitignored; config/owner.example.json shows the shape).
-# Hosted users' builds take theirs from their profile (/job-hunt-ai:setup); see
-# contact_rows() and the --token path in main().
-OWNER_FILE = PROJECT_ROOT / "config" / "owner.json"
-
-
-def _load_owner() -> tuple[str, dict]:
-    try:
-        data = json.loads(OWNER_FILE.read_text())
-    except (OSError, ValueError):
-        return "", {}
-    return str(data.get("name") or ""), dict(data.get("contact") or {})
-
-
-NAME, CONTACT = _load_owner()
-STORAGE_BUCKET = "pipeline-artifacts"
-
-sys.path.insert(0, str(PROJECT_ROOT / "scripts" / "supabase"))
-sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
-
-from log_event import write_event as _write_db_event  # noqa: E402
+TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
+# Set in main() from the user's job-app folder and build inputs.
+BUILDS_DIR: Path | None = None
+PRINT_CACHE: Path | None = None
+PROFILE_PHOTO: Path | None = None
+NAME = ""
+CONTACT: dict = {}
 
 
 class Hosted:
-    """The plugin's data source: the hosted job-app server, acting as the
-    user whose script token it holds. Passed where the Supabase client goes."""
+    """The hosted job-app server, acting as the user whose script token it
+    holds. Passed to every step that reads or writes the user's data."""
 
     def __init__(self, api):
         self.api = api
 
 
-def write_event(sb, run_id: str, agent: str, status: str, job: str | None = None,
+def write_event(sb: Hosted, run_id: str, agent: str, status: str, job: str | None = None,
                 details: dict | None = None) -> None:
-    """One pipeline_events row, through the server or straight to Supabase."""
-    if isinstance(sb, Hosted):
-        payload = {"run_id": run_id, "agent": agent, "status": status, "details": details or {}}
-        if job:
-            payload["job"] = job
-        sb.api.call("log_event", payload)
-        return
-    _write_db_event(sb, run_id, agent, status, job, details)
+    """One pipeline_events row, through the server's log_event tool."""
+    payload = {"run_id": run_id, "agent": agent, "status": status, "details": details or {}}
+    if job:
+        payload["job"] = job
+    sb.api.call("log_event", payload)
 
 # run_id/job_id become directory names (builds/<slug>-<date>[-<job_id>]/) and
 # Storage object-key segments (<run_id>/<job_id>/cv.html). Neither may contain
@@ -157,15 +132,6 @@ MAX_BOTTOM_BLANK_MM = 45.0
 MM_PER_PT = 25.4 / 72
 # Word bottoms closer than this (pt) are on the same printed line.
 LINE_MERGE_PT = 2.0
-
-
-def _chrome_path() -> str | None:
-    for candidate in (shutil.which("google-chrome"), shutil.which("chrome"), shutil.which("chromium"),
-                      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-                      "/Applications/Chromium.app/Contents/MacOS/Chromium"):
-        if candidate and Path(candidate).is_file():
-            return candidate
-    return None
 
 
 def _page_lines(pdf_path: Path, expected_pages: int) -> list[tuple[float, list[float]]]:
@@ -246,39 +212,18 @@ def fit_window(page_lines: list[tuple[float, list[float]]], blanks_mm: list[floa
     return {"line_pitch_mm": round(pitch_mm, 1), "changes": changes}
 
 
-def print_preflight(html_path: Path, pdf_path: Path, max_pages: int = 2) -> dict:
-    """Print the exact saved HTML through headless Chrome and measure it.
+def measure_pdf(html_path: Path, pdf_path: Path, checked_bytes: bytes, max_pages: int = 2) -> dict:
+    """Measure a PDF printed from `html_path`, whose bytes were
+    `checked_bytes` when the print started.
 
     Returns visible_words (informational), printed_pages, page_size,
     is_a4_portrait, per-page bottom whitespace in mm, and rule_violations
-    (a list of human-readable problem strings, empty when the page is clean).
-    A rule violation does NOT raise
-    — it's a real measurement of a document that fails the gate, and
-    candidate mode needs that measurement (not an exception) so QA can see
+    (human-readable problems, empty when the page is clean). A rule
+    violation does NOT raise — it's a real measurement of a document that
+    fails the gate, and candidate mode needs that measurement so QA can see
     the actual numbers. Only a failure to produce a *trustworthy*
-    measurement raises RuntimeError: Chrome/pdfinfo/pdftotext failing, or
-    the saved file mutating mid-check.
-    """
-    checked_bytes = html_path.read_bytes()
-    chrome_print(html_path, pdf_path)
-    return measure_pdf(html_path, pdf_path, checked_bytes, max_pages)
-
-
-def chrome_print(html_path: Path, pdf_path: Path) -> None:
-    """Print the saved HTML to `pdf_path` with headless Chrome."""
-    chrome = _chrome_path()
-    if not chrome:
-        raise RuntimeError("Chrome is required for the print preflight")
-    run = subprocess.run([chrome, "--headless", "--disable-gpu", "--no-pdf-header-footer",
-                          f"--print-to-pdf={pdf_path}", html_path.resolve().as_uri()],
-                         capture_output=True, text=True, timeout=90)
-    if run.returncode != 0 or not pdf_path.is_file():
-        raise RuntimeError(f"Chrome print failed (exit {run.returncode}): {(run.stderr or run.stdout).strip()[-1200:]}")
-
-
-def measure_pdf(html_path: Path, pdf_path: Path, checked_bytes: bytes, max_pages: int = 2) -> dict:
-    """Measure a PDF printed from `html_path`, whose bytes were
-    `checked_bytes` when the print started. See print_preflight."""
+    measurement raises RuntimeError: pdfinfo/pdftotext failing, or the saved
+    file changing mid-check."""
     info = subprocess.run(["pdfinfo", str(pdf_path)], capture_output=True, text=True, timeout=20)
     if info.returncode != 0:
         raise RuntimeError(f"pdfinfo failed: {info.stderr.strip()[-1200:]}")
@@ -331,72 +276,15 @@ def measure_pdf(html_path: Path, pdf_path: Path, checked_bytes: bytes, max_pages
 
 
 def measure_print(html_path: Path, max_pages: int = 2, keep_pdf: Path | None = None) -> dict:
-    """Run print_preflight without ever raising: a tool failure becomes
+    """Measure the PDF the agent printed from these exact bytes, or note
+    that it must be printed first. Never raises: a tool failure becomes
     `tool_errors` in the same evidence shape a clean measurement has (with
-    the measured fields null and `rule_violations` empty), so callers can
-    log or compare evidence uniformly regardless of what happened.
+    the measured fields null and `rule_violations` empty), so callers can log
+    or compare evidence uniformly whatever happened.
 
-    `keep_pdf` (--pdf only) moves the measured PDF there instead of deleting
-    it, so the file sent with an application is the very one the gate
-    measured. The caller owns removing it if a later check refuses."""
-    if PRINTER == "playwright":
-        return _measure_cached_print(html_path, max_pages, keep_pdf)
-    try:
-        with tempfile.NamedTemporaryFile(prefix="job_app_print_preflight_", suffix=".pdf", delete=False) as tmp_pdf:
-            pdf_path = Path(tmp_pdf.name)
-    except OSError as e:
-        return {"visible_words": None, "page_bottom_blank_mm": None, "max_bottom_blank_mm": MAX_BOTTOM_BLANK_MM, "printed_pages": None,
-                "page_size": None, "is_a4_portrait": None, "rule_violations": [], "tool_errors": [str(e)]}
-    try:
-        evidence = print_preflight(html_path, pdf_path, max_pages=max_pages)
-        if keep_pdf is not None:
-            shutil.move(str(pdf_path), str(keep_pdf))
-        evidence["tool_errors"] = []
-        return evidence
-    except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as e:
-        return {"visible_words": None, "page_bottom_blank_mm": None, "max_bottom_blank_mm": MAX_BOTTOM_BLANK_MM, "printed_pages": None,
-                "page_size": None, "is_a4_portrait": None, "rule_violations": [], "tool_errors": [str(e)]}
-    finally:
-        try:
-            pdf_path.unlink(missing_ok=True)
-        except OSError as e:
-            log(f"WARNING: could not remove temporary print file {pdf_path}: {e}")
-
-
-# How this process prints. "chrome" runs headless Chrome itself (the local
-# pipeline). "playwright" is the plugin's: Claude Code's sandbox can refuse
-# Chrome started from a script, so the agent prints through the Playwright
-# MCP server instead, which runs outside the sandbox. The script names the
-# files to print and stops with `needs_print`; the agent runs the print
-# script it wrote, then runs the same command again, which finds the PDFs.
-PRINTER = "chrome"
-PRINT_CACHE: Path | None = None
-# Part of every cache key, so a change to how PDFs are printed reprints
-# instead of reusing PDFs made the old way.
-PRINT_SETTINGS = (print_script.PREFIX + print_script.SUFFIX).encode()
-_pending_prints: list[dict] = []
-
-
-def _no_measurement(errors: list[str]) -> dict:
-    return {"visible_words": None, "page_bottom_blank_mm": None, "max_bottom_blank_mm": MAX_BOTTOM_BLANK_MM,
-            "printed_pages": None, "page_size": None, "is_a4_portrait": None, "rule_violations": [],
-            "tool_errors": errors}
-
-
-def cached_pdf_path(html_path: Path, html_bytes: bytes) -> Path:
-    """Where the PDF of exactly these bytes is kept. The key covers all the
-    page loads from disk: the HTML and the photo beside it (the fonts come
-    from the web for both printers)."""
-    digest = hashlib.sha256(PRINT_SETTINGS)
-    digest.update(hashlib.sha256(html_bytes).digest())
-    photo = html_path.parent / "profile-photo.jpg"
-    digest.update(hashlib.sha256(photo.read_bytes()).digest() if photo.is_file() else b"no photo")
-    return PRINT_CACHE / f"{digest.hexdigest()}.pdf"
-
-
-def _measure_cached_print(html_path: Path, max_pages: int, keep_pdf: Path | None) -> dict:
-    """measure_print for the plugin: measure the PDF the agent printed from
-    these exact bytes, or note that it must be printed first."""
+    `keep_pdf` (--pdf only) copies the measured PDF there, so the file sent
+    with an application is the very one the gate measured. The caller owns
+    removing it if a later check refuses."""
     try:
         checked_bytes = html_path.read_bytes()
         cached = cached_pdf_path(html_path, checked_bytes)
@@ -416,6 +304,29 @@ def _measure_cached_print(html_path: Path, max_pages: int, keep_pdf: Path | None
         return evidence
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as e:
         return _no_measurement([str(e)])
+
+
+# Part of every print's cache key, so a change to how PDFs are printed
+# reprints instead of reusing PDFs made the old way.
+PRINT_SETTINGS = (print_script.PREFIX + print_script.SUFFIX).encode()
+_pending_prints: list[dict] = []
+
+
+def _no_measurement(errors: list[str]) -> dict:
+    return {"visible_words": None, "page_bottom_blank_mm": None, "max_bottom_blank_mm": MAX_BOTTOM_BLANK_MM,
+            "printed_pages": None, "page_size": None, "is_a4_portrait": None, "rule_violations": [],
+            "tool_errors": errors}
+
+
+def cached_pdf_path(html_path: Path, html_bytes: bytes) -> Path:
+    """Where the PDF of exactly these bytes is kept. The key covers all the
+    page loads from disk: the HTML and the photo beside it (the fonts come
+    from the web)."""
+    digest = hashlib.sha256(PRINT_SETTINGS)
+    digest.update(hashlib.sha256(html_bytes).digest())
+    photo = html_path.parent / "profile-photo.jpg"
+    digest.update(hashlib.sha256(photo.read_bytes()).digest() if photo.is_file() else b"no photo")
+    return PRINT_CACHE / f"{digest.hexdigest()}.pdf"
 
 
 def request_pending_prints() -> None:
@@ -1032,52 +943,6 @@ def render_html_pair(cv_markdown: str, cl_markdown: str, title: str, company: st
     return cv_html, cl_html
 
 
-def upload_to_storage(sb, run_id: str, job_id: str, cv_path: Path, cl_path: Path,
-                      expected_cv_sha256: str, expected_letter_sha256: str):
-    """Upload both HTML files to Storage. Returns (uploaded, errors) where
-    `uploaded` is a dict {"cv_html": "...", "cover_letter_html": "..."}.
-    PDFs are never uploaded — see the module docstring.
-    Retries once per file on failure; any file still failing after the retry
-    is reported in `errors` — the caller (only --publish calls this) treats
-    any error as fatal and does not mark the job built.
-    Both saved files are hash-checked before either is uploaded.
-
-    run_id/job_id are validated (ID_PATTERN) by the caller before this is
-    reached, so the object-key path segments below can't contain '/' or '..'.
-    """
-    bucket = sb.storage.from_(STORAGE_BUCKET)
-    uploaded: dict[str, str] = {}
-    errors: list[str] = []
-    payloads = []
-    for key, local_path, remote_name, expected_sha256 in (
-        ("cv_html", cv_path, "cv.html", expected_cv_sha256),
-        ("cover_letter_html", cl_path, "cover_letter.html", expected_letter_sha256),
-    ):
-        data = local_path.read_bytes()
-        if hashlib.sha256(data).hexdigest() != expected_sha256:
-            raise RuntimeError(f"saved {remote_name} differs from the file checked by Chrome")
-        payloads.append((key, remote_name, data))
-    for key, remote_name, data in payloads:
-        remote_path = f"{run_id}/{job_id}/{remote_name}"
-        last_err = None
-        for _attempt in (1, 2):
-            try:
-                bucket.upload(
-                    remote_path,
-                    data,
-                    file_options={"content-type": "text/html; charset=utf-8", "upsert": "true"},
-                )
-                last_err = None
-                break
-            except Exception as e:  # noqa: BLE001
-                last_err = e
-        if last_err is None:
-            uploaded[key] = f"{STORAGE_BUCKET}/{remote_path}"
-        else:
-            errors.append(f"{remote_path}: {last_err}")
-    return uploaded, errors
-
-
 def run_candidate(sb, args, job_uuid: str, title: str, company: str, cv_markdown: str, cl_markdown: str) -> None:
     slug = slugify(title)
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -1116,6 +981,10 @@ def run_candidate(sb, args, job_uuid: str, title: str, company: str, cv_markdown
 
     photo_bytes = (out_dir / "profile-photo.jpg").read_bytes() if photo_copied else None
     hashes = hash_evidence(cv_path.read_bytes(), cl_path.read_bytes(), photo_bytes)
+    # Label the directory before measuring: a stop for printing exits there,
+    # and an unlabelled directory would be passed over (resolve_build_dir())
+    # when the same command runs again.
+    write_approval_json(out_dir, approved=False, evidence=hashes, run_id=args.run_id, job_id=args.job_id, job_uuid=job_uuid)
     cv_measurement = measure_print(cv_path)
     letter_measurement = measure_print(cl_path, max_pages=1)
     request_pending_prints()
@@ -1173,16 +1042,10 @@ def run_publish(sb, args, job_uuid: str, title: str, company: str, cv_markdown: 
     """--publish, or with `pdf_only` the --pdf mode: every check a publish
     makes, then keep the printed PDFs instead of uploading and flagging."""
     try:
-        if isinstance(sb, Hosted):
-            latest = sb.api.call("get_latest_qa", {"run_id": args.run_id, "job_id": args.job_id})["qa"]
-            qa_rows = [latest] if latest else []
-        else:
-            qa_rows = (
-                sb.table("qa_results").select("version,status,issues,build_evidence")
-                .eq("job_id", job_uuid).order("version", desc=True).limit(1).execute().data
-            )
+        latest = sb.api.call("get_latest_qa", {"run_id": args.run_id, "job_id": args.job_id})["qa"]
+        qa_rows = [latest] if latest else []
     except Exception as e:  # noqa: BLE001
-        fail(getattr(e, "error", "supabase_unreachable"), f"reading qa_results failed: {e}")
+        fail(getattr(e, "error", "supabase_unreachable"), f"reading the latest QA result failed: {e}")
         return
 
     if not qa_rows:
@@ -1211,9 +1074,9 @@ def run_publish(sb, args, job_uuid: str, title: str, company: str, cv_markdown: 
              "gate, or QA had no candidate to review; run --candidate then qa again")
         return
 
-    # Re-render the exact same content fresh from Supabase (see the module
+    # Re-render the exact same content fresh from the drafts (see the module
     # docstring for why this is a correct freshness check, not a best-effort
-    # one) and require an EXACT hash match before touching disk/Storage/DB.
+    # one) and require an EXACT hash match before touching disk or the server.
     cv_html, cl_html = render_html_pair(cv_markdown, cl_markdown, title, company)
     cv_bytes = cv_html.encode("utf-8")
     cl_bytes = cl_html.encode("utf-8")
@@ -1315,58 +1178,23 @@ def _publish_measured(sb, args, job_uuid: str, qa: dict, build_evidence: dict, f
         }))
         return
 
-    if isinstance(sb, Hosted):
-        # The server hashes what it receives and asks the database's publish
-        # gate before it uploads and marks the job built.
-        try:
-            published = sb.api.call("publish_build", {
-                "run_id": args.run_id, "job_id": args.job_id,
-                "cv_html": cv_path.read_bytes().decode("utf-8"),
-                "letter_html": cl_path.read_bytes().decode("utf-8"),
-                "measurement": measurement,
-            })
-        except Exception as e:  # noqa: BLE001
-            fail(getattr(e, "error", "upload_failed"), str(e), {"evidence": evidence})
-            return
-        uploaded = published["storage"]
-    else:
-        _publish_with_service_key(sb, args, cv_path, cl_path, evidence)
-        uploaded = {"cv_html": f"{STORAGE_BUCKET}/{args.run_id}/{args.job_id}/cv.html",
-                    "cover_letter_html": f"{STORAGE_BUCKET}/{args.run_id}/{args.job_id}/cover_letter.html"}
+    # The server hashes what it receives and asks the database's publish
+    # gate before it uploads and marks the job built.
+    try:
+        published = sb.api.call("publish_build", {
+            "run_id": args.run_id, "job_id": args.job_id,
+            "cv_html": cv_path.read_bytes().decode("utf-8"),
+            "letter_html": cl_path.read_bytes().decode("utf-8"),
+            "measurement": measurement,
+        })
+    except Exception as e:  # noqa: BLE001
+        fail(getattr(e, "error", "upload_failed"), str(e), {"evidence": evidence})
+        return
+    uploaded = published["storage"]
 
     write_approval_json(out_dir, approved=True, evidence=evidence, run_id=args.run_id, job_id=args.job_id,
                          job_uuid=job_uuid, qa_version=qa.get("version"))
     _log_published(sb, args, out_dir, cv_path, cl_path, uploaded, qa, evidence, photo_copied)
-
-
-def _publish_with_service_key(sb, args, cv_path: Path, cl_path: Path, evidence: dict) -> None:
-    """The owner's local publish: upload, then flip the built flags."""
-    try:
-        uploaded, errors = upload_to_storage(sb, args.run_id, args.job_id, cv_path, cl_path,
-                                             evidence["cv_sha256"], evidence["letter_sha256"])
-    except (OSError, RuntimeError) as e:
-        fail("upload_failed", str(e), {"evidence": evidence})
-        return
-    if errors:
-        # Unlike the old single-mode builder, an upload failure during
-        # --publish is fatal: the job must not be marked built with nothing
-        # in Storage.
-        fail("upload_failed", "; ".join(errors), {"evidence": evidence})
-        return
-
-    now_iso = datetime.now(timezone.utc).isoformat()
-    try:
-        sb.table("jobs").update({
-            "cv_built": True, "cv_built_at": now_iso,
-            "cover_letter_built": True, "cover_letter_built_at": now_iso,
-            # Where the files went, so readers need not guess the layout
-            # (hosted users' builds live under <user_id>/<run_id>/<job_id>/).
-            "cv_html_path": f"{args.run_id}/{args.job_id}/cv.html",
-            "cover_letter_html_path": f"{args.run_id}/{args.job_id}/cover_letter.html",
-        }).eq("run_id", args.run_id).eq("job_id", args.job_id).execute()
-    except Exception as e:  # noqa: BLE001
-        fail("supabase_unreachable", f"failed to update jobs build columns: {e}", {"evidence": evidence})
-        return
 
 
 def _log_published(sb, args, out_dir: Path, cv_path: Path, cl_path: Path, uploaded: dict, qa: dict,
@@ -1404,133 +1232,6 @@ def _log_published(sb, args, out_dir: Path, cv_path: Path, cl_path: Path, upload
     }))
 
 
-def main() -> None:
-    # Claude/Antigravity may invoke the script with a system python that lacks
-    # the repo's Supabase/Jinja dependencies. Re-exec into the existing project
-    # environment before doing any work; the resolved prefix prevents a loop.
-    if VENV_PYTHON.is_file() and Path(sys.prefix).resolve() != VENV_DIR.resolve():
-        os.execv(str(VENV_PYTHON), [str(VENV_PYTHON), str(Path(__file__).resolve()), *sys.argv[1:]])
-
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("run_id")
-    parser.add_argument("job_id")
-    parser.add_argument("--candidate", action="store_true",
-                         help="render + measure only; no upload, no built flags, no completed event")
-    parser.add_argument("--publish", action="store_true",
-                         help="require the latest qa_results to approve the exact candidate, then upload + set built flags")
-    parser.add_argument("--pdf", action="store_true",
-                         help="print an already-published build to '<Name> - <Role> - <Company> - CV.pdf' and "
-                              "'... - Cover Letter.pdf' locally; no upload, no DB writes")
-    parser.add_argument("--discard-pdfs", action="store_true",
-                         help="remove this job's local PDFs once the application has been sent")
-    parser.add_argument("--dry-run", action="store_true",
-                         help="(with --candidate only) render to a temp dir outside the repo; no upload, no DB writes")
-    parser.add_argument("--token", help="a job-app script token: work through the hosted server (the plugin)")
-    args = parser.parse_args()
-
-    modes = sum((args.candidate, args.publish, args.pdf, args.discard_pdfs))
-    if modes > 1:
-        fail("mode_conflict", "--candidate, --publish, --pdf and --discard-pdfs are mutually exclusive")
-    if modes == 0:
-        fail("mode_required", "specify --candidate, --publish, --pdf or --discard-pdfs — there is no default "
-                               "mode, so nothing can accidentally publish an unapproved document")
-    if args.dry_run and not args.candidate:
-        fail("mode_conflict", "--dry-run is only valid together with --candidate")
-
-    # run_id/job_id end up in filesystem paths and Storage object keys — reject
-    # anything that isn't a plain token before either is used for anything.
-    validate_id(args.run_id, "run_id")
-    validate_id(args.job_id, "job_id")
-
-    if args.token:
-        main_hosted(args)
-        return
-    if not NAME:
-        print("WARNING: config/owner.json is missing or has no name; the CV will have no name or contact line "
-              "(copy config/owner.example.json to config/owner.json)", file=sys.stderr)
-
-    # Check Supabase env ourselves first so a missing .env produces our JSON
-    # contract instead of sync_config.get_supabase_client()'s bare sys.exit(1).
-    try:
-        from dotenv import load_dotenv
-        from sync_config import ENV_FILE
-        load_dotenv(ENV_FILE)
-    except ImportError:
-        pass
-    if not os.environ.get("SUPABASE_URL") or not os.environ.get("SUPABASE_SERVICE_ROLE_KEY"):
-        fail("supabase_unreachable", "SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set (scripts/supabase/.env)")
-
-    try:
-        from sync_config import get_supabase_client
-        sb = get_supabase_client()
-    except SystemExit:
-        fail("supabase_unreachable", "could not create Supabase client")
-        return
-
-    if args.publish or (args.candidate and not args.dry_run):
-        begin_task(sb, args.run_id, args.job_id, "publish" if args.publish else "candidate")
-
-    try:
-        job_rows = (
-            sb.table("jobs")
-            .select("id,title,company,cv_built,cover_letter_built")
-            .eq("run_id", args.run_id)
-            .eq("job_id", args.job_id)
-            .execute()
-            .data
-        )
-    except Exception as e:  # noqa: BLE001
-        fail("supabase_unreachable", f"reading jobs failed: {e}")
-        return
-
-    if not job_rows:
-        fail("job_not_found", f"no jobs row for run_id={args.run_id} job_id={args.job_id}")
-        return
-    job = job_rows[0]
-    job_uuid, title, company = job["id"], job["title"], job["company"]
-
-    if args.discard_pdfs:
-        build_dir = find_build_dir(job_uuid)
-        if build_dir:
-            discard_pdfs(build_dir)
-        print(json.dumps({"status": "discarded", "run_id": args.run_id, "job_id": args.job_id,
-                          "builds_dir": str(build_dir) if build_dir else None}))
-        return
-    if args.pdf and not (job.get("cv_built") and job.get("cover_letter_built")):
-        fail("not_built", "this job has no published build — run --publish (after QA approves) before --pdf")
-        return
-
-    try:
-        cv_rows = (
-            sb.table("tailored_cvs").select("content").eq("job_id", job_uuid)
-            .order("version", desc=True).limit(1).execute().data
-        )
-        cl_rows = (
-            sb.table("cover_letters").select("content").eq("job_id", job_uuid)
-            .order("version", desc=True).limit(1).execute().data
-        )
-    except Exception as e:  # noqa: BLE001
-        fail("supabase_unreachable", f"reading tailored_cvs/cover_letters failed: {e}")
-        return
-
-    missing = []
-    if not cv_rows:
-        missing.append("tailored_cvs")
-    if not cl_rows:
-        missing.append("cover_letters")
-    if missing:
-        fail("missing_content", f"no rows found in: {', '.join(missing)} for this job — run cvWriter/appWriter first")
-        return
-
-    cv_markdown = cv_rows[0]["content"]
-    cl_markdown = cl_rows[0]["content"]
-
-    if args.candidate:
-        run_candidate(sb, args, job_uuid, title, company, cv_markdown, cl_markdown)
-    else:
-        run_publish(sb, args, job_uuid, title, company, cv_markdown, cl_markdown, pdf_only=args.pdf)
-
-
 def jobapp_home() -> Path:
     """job-app/ in the folder Claude Code runs in, unless JOBAPP_HOME says
     otherwise. Inside the workspace, so the browser tools (which may only
@@ -1551,10 +1252,39 @@ def find_build_dir_by_label(run_id: str, job_id: str) -> Path | None:
     return max(owned, key=lambda path: path.stat().st_mtime).parent if owned else None
 
 
-def main_hosted(args) -> None:
-    """The plugin's path: the same modes, with the data from the hosted
-    server. The build directory, name and photo are the logged-in user's."""
-    global BUILDS_DIR, PROFILE_PHOTO, NAME, CONTACT, PRINTER, PRINT_CACHE
+def main() -> None:
+    global BUILDS_DIR, PROFILE_PHOTO, NAME, CONTACT, PRINT_CACHE
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("run_id")
+    parser.add_argument("job_id")
+    parser.add_argument("--candidate", action="store_true",
+                         help="render + measure only; nothing published, no completed event")
+    parser.add_argument("--publish", action="store_true",
+                         help="require the latest QA result to approve the exact candidate, then publish it")
+    parser.add_argument("--pdf", action="store_true",
+                         help="print an already-published build to '<Name> - <Role> - <Company> - CV.pdf' and "
+                              "'... - Cover Letter.pdf' locally; nothing sent")
+    parser.add_argument("--discard-pdfs", action="store_true",
+                         help="remove this job's local PDFs once the application has been sent")
+    parser.add_argument("--dry-run", action="store_true",
+                         help="(with --candidate only) render to a temp dir; no events, nothing sent")
+    parser.add_argument("--token", required=True, help="a job-app script token, from the script_token tool")
+    args = parser.parse_args()
+
+    modes = sum((args.candidate, args.publish, args.pdf, args.discard_pdfs))
+    if modes > 1:
+        fail("mode_conflict", "--candidate, --publish, --pdf and --discard-pdfs are mutually exclusive")
+    if modes == 0:
+        fail("mode_required", "specify --candidate, --publish, --pdf or --discard-pdfs — there is no default "
+                               "mode, so nothing can accidentally publish an unapproved document")
+    if args.dry_run and not args.candidate:
+        fail("mode_conflict", "--dry-run is only valid together with --candidate")
+
+    # run_id/job_id end up in filesystem paths and Storage object keys — reject
+    # anything that isn't a plain token before either is used for anything.
+    validate_id(args.run_id, "run_id")
+    validate_id(args.job_id, "job_id")
+
     from jobapp_api import Api, ApiError
 
     try:
@@ -1564,7 +1294,7 @@ def main_hosted(args) -> None:
         return
     home = jobapp_home()
     BUILDS_DIR = home / "builds"
-    PRINTER, PRINT_CACHE = "playwright", home / ".print"
+    PRINT_CACHE = home / ".print"
     try:
         BUILDS_DIR.mkdir(parents=True, exist_ok=True)
         PRINT_CACHE.mkdir(exist_ok=True)

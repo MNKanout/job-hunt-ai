@@ -9,7 +9,7 @@ The plugin keeps nothing on disk except the HTML it builds. All data (your CV, j
 ## Hard rules (for you and every agent)
 
 - Only the job-app tools touch the data. Never look for a database, a key or a config file, and never write your own script.
-- If a tool you need is missing, denied or failing, stop and escalate: `ESCALATION: <tool>_unavailable`. If a job-app tool answers `subscription_required`, stop and tell the user to check `/job-hunt-ai:setup`. If `save_postings` answers `run_closed`, the run has ended or is over 24 hours old: finish it and start a new one rather than reopening it. `run_full` means the run took its maximum of jobs: finish it with what it has. If `start_run` answers `run_limit_reached`, stop and tell the user their plan's runs are used up and when they reset (`/job-hunt-ai:status` shows it). If it answers `not_authenticated`, tell the user to run `/mcp`, pick the job-hunt-ai plugin's `jobs` server, and sign in again.
+- If a tool you need is missing, denied or failing, stop and escalate: `ESCALATION: <tool>_unavailable`. If a job-app tool answers `subscription_required`, stop and tell the user to check `/job-hunt-ai:setup`. If `save_postings` answers `run_closed`, the run has ended or is over 24 hours old: finish it and start a new one rather than reopening it. `run_full` means the run took its maximum of jobs: finish it with what it has. If `start_run` answers `run_limit_reached`, stop and tell the user their plan's jobs for today are used up, when they reset (`/job-hunt-ai:status` shows it), and that a bigger plan is on the website's pricing page. If it answers `not_authenticated`, tell the user to run `/mcp`, pick the job-hunt-ai plugin's `jobs` server, and sign in again.
 - Pass `run_id` + `job_id` between agents, never file contents.
 - Never claim an application was sent. Auto-submit is off: the submitter fills the form in a visible browser and stops, and **the user presses send**. Afterwards the user runs `/job-hunt-ai:mark-applied <job>`.
 - A new rule is staged with `stage_rule` and does nothing until the user approves it with `/job-hunt-ai:review-feedback`.
@@ -39,7 +39,7 @@ Approved rules and the hard rules above are binding. Never waive, weaken or rein
 One run processes **one job**. jobFinder and jobVerifier work in batches; the other qualified jobs of a batch wait in the queue for later runs.
 
 1. **Settings.** Call `get_settings`. If `setup_needed` is true, stop and tell the user which items are `missing` and to run `/job-hunt-ai:setup`. Keep `titles` (in priority order), `countries`, `platforms`, `default_platforms`, `batch_size`, `max_postings_per_run`. The Location is the one the user gave, else the first of `countries`.
-2. **Start.** Call `start_run`; its `run_id` names this run. Set `tmp_dir` to the literal path `/tmp/playwright-mcp/<run_id>` (for Playwright snapshots only). Do not create it with a shell command: Claude Code's sandbox can refuse that, and Playwright and the Write tool create the folder themselves. Log `log_event(run_id, agent: pipeline, status: started)`.
+2. **Start.** Call `start_run`; its `run_id` names this run, and its `max_agents` is this run's limit on agents at once (Budget guards). Set `tmp_dir` to the literal path `/tmp/playwright-mcp/<run_id>` (for Playwright snapshots only). Do not create it with a shell command: Claude Code's sandbox can refuse that, and Playwright and the Write tool create the folder themselves. Log `log_event(run_id, agent: pipeline, status: started)`.
 3. **Queue first.** Call `next_job(run_id, countries: [Location])`.
    - `job_found: true` → that job is this run's job. Skip to step 6.
    - `job_found: false` → go on to jobFinder.
@@ -83,10 +83,11 @@ One run processes **one job**. jobFinder and jobVerifier work in batches; the ot
 7. **Publish (automatic).** Once QA passes (or warns with no fail), spawn `builder` with `mode: publish`. The server checks the hashes and print measurements against the QA approval, then uploads and marks the job built. Then call `promote_cv_template(run_id, job_id)`: if cvWriter staged a refreshed template for this job, it becomes the family's template. When it returns `promoted: true`, tell the user in the outcome: "Template <family> updated to v<version> with new facts from <source_files_added_from>". Any refusal (`qa_not_approved`, `qa_missing_evidence`, `qa_evidence_mismatch`, `print_rule_violation`, `print_tool_failure`, `upload_failed`) means something changed after QA: go back to a fresh candidate and a fresh QA, never retry publish directly. Release the trio after a publish or a cap stop.
 8. **Fill the application (automatic, the user sends it).** Follow `/job-hunt-ai:submit` exactly: `submitter` `prepare` fills the form in a visible Chrome window and stops before the send button → `submitVerifier` checks the filled form → on a fail, back to the same submitter with the issues (the verifier ends the loop on its third fail). On a pass, tell the user the window is ready for them to check and press send, then run `/job-hunt-ai:mark-applied <job_id>`.
 9. **Present to the user.** Per job: **Ready to send** (form filled and verified), or **Apply manually** with the agent's note and the application link. Give the local HTML paths from builder.
-10. **End.** Spawn `sumWriter` with `run_id`; it saves the summary and closes the run.
-11. **Clean up** Playwright snapshots: `rm -f /tmp/playwright-mcp/*.yml` and `rm -f <tmp_dir>/*` (the literal path, never a `$` variable). If the sandbox refuses, leave them: the system clears `/tmp`.
+10. **Count the tokens.** Call `script_token`, then run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/upload_usage.py" --run-id <run_id> --token <token>`. It sends the run's token use (numbers only) to the office's meter. Whatever it answers, go on: it never stops a run.
+11. **End.** Spawn `sumWriter` with `run_id`; it saves the summary and closes the run.
+12. **Clean up** Playwright snapshots: `rm -f /tmp/playwright-mcp/*.yml` and `rm -f <tmp_dir>/*` (the literal path, never a `$` variable). If the sandbox refuses, leave them: the system clears `/tmp`.
 
-If interrupted, spawn sumWriter to record the state before stopping, and still clean up.
+If interrupted, count the tokens (step 10), spawn sumWriter to record the state before stopping, and still clean up.
 
 ---
 
@@ -122,7 +123,7 @@ When cvWriter, appWriter or qa fails with `rule_conflict`, two approved rules co
 
 - **`max_postings_per_run` postings scanned per run** (30). A job from the queue scans nothing.
 - **5 correction rounds per agent per job**, as above.
-- **20 agents running at once at most**, one for each desk in Job Hunt HQ. Waiting agents do not count: they use nothing until they get a follow-up. Never release a waiting writer or qa before its job is published or stopped; start the new agent once a running one finishes.
+- **`max_agents` agents running at once at most**: the number `start_run` returned, from the user's plan (1 on Free, up to 20 on Ultra, one for each desk in Job Hunt HQ). Waiting agents do not count: they use nothing until they get a follow-up. Never release a waiting writer or qa before its job is published or stopped; start the new agent once a running one finishes. With 1, the agents simply take turns.
 - **90 minutes per run.** Past that, stop, spawn sumWriter, report.
 
 If a guard hits, stop, record the state with sumWriter, and ask the user how to go on.
