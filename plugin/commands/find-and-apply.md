@@ -12,6 +12,6 @@ Run the full pipeline (its section "Pipeline") for one job:
 3. For that job: the template lookup, cvWriter, appWriter, builder `candidate`, the print check, qa, the correction loop (`discard_cv_template` on the cap), builder `publish`, then `promote_cv_template`.
 4. Fill the application with `/job-hunt-ai:submit`'s steps 2 onward. The user presses send.
 5. Present the outcome: **Ready to send** (where the filled form is open, and to run `/job-hunt-ai:mark-applied <job_id>` after sending) or **Apply manually** with the note and link, plus the local HTML paths.
-6. sumWriter at the end, or on interruption.
+6. Count the tokens (the playbook's step 10), then sumWriter, at the end or on interruption.
 
-Enforce every budget guard. If a job-app tool answers `not_authenticated`, tell the user to run `/mcp`, pick the job-hunt-ai plugin's `jobs` server, and sign in; on `subscription_required`, point them to `/job-hunt-ai:setup`; on `run_limit_reached`, say the plan's runs are used up and point them to `/job-hunt-ai:status`.
+Enforce every budget guard. If a job-app tool answers `not_authenticated`, tell the user to run `/mcp`, pick the job-hunt-ai plugin's `jobs` server, and sign in; on `subscription_required`, point them to `/job-hunt-ai:setup`; on `run_limit_reached`, say the plan's jobs for today are used up and point them to `/job-hunt-ai:status`.

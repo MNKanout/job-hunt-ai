@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Start the Playwright MCP server on the pipeline's own Chrome profile.
 
-    python3 scripts/playwright_mcp.py [playwright-mcp args...]   # what .mcp.json runs
+    python3 scripts/playwright_mcp.py [playwright-mcp args...]   # what plugin/.mcp.json runs
     python3 scripts/playwright_mcp.py --login [url]              # log in by hand, once
 
 The submitter applies on job platforms that need an account. It never sees a
@@ -12,10 +12,10 @@ never be committed. It is created here when missing, so a fresh machine needs
 no setup beyond logging in again.
 
 `.mcp.json` cannot hold this path itself: it would have to be absolute, and
-`~` / `${HOME}` are not expanded by every provider that reads the file.
+`~` / `${HOME}` are not expanded there.
 
-Passing `--isolated` (Codex does, so its agents don't fight over the profile
-lock) skips the profile and behaves exactly like plain Playwright MCP.
+Passing `--isolated` (or any flag that names the browser's state) skips the
+profile and behaves exactly like plain Playwright MCP.
 Set JOB_APP_CHROME_PROFILE to use a different folder.
 """
 from __future__ import annotations
