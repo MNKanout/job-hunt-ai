@@ -1,0 +1,11 @@
+{
+  "name": "job-hunt-ai",
+  "owner": { "name": "Nour Kanout", "url": "https://github.com/MNKanout" },
+  "plugins": [
+    {
+      "name": "job-hunt-ai",
+      "source": "./plugin",
+      "description": "A team of agents that finds jobs, tailors your CV and cover letter, checks them, builds print-ready files and fills the application for you to send."
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "jobs": {
+      "type": "http",
+      "url": "https://mcp.job-hunt-agents.syrwegian.com/mcp"
+    },
+    "playwright": {
+      "type": "stdio",
+      "command": "python3",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/playwright_mcp.py", "--output-dir", "/tmp/playwright-mcp"]
+    }
+  }
+}
