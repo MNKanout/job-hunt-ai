@@ -1,17 +1,17 @@
-# Job hunt agents — Claude Code plugin
+# Job Hunt AI — Claude Code plugin
 
 A team of agents that finds jobs, tailors your CV and cover letter for each one,
 fact-checks them against your real CV, builds print-ready files, and fills the
 application form for you to send. It runs in your own Claude Code, on your own
 Claude plan. Your data (CV, jobs, drafts, learned rules) lives on the hosted
-job-app server, behind your login.
+Job Hunt AI server, behind your login.
 
 ## What you need
 
 - Claude Code
 - Python 3.10+, Google Chrome, Node.js (for the browser tools), and poppler
   (`brew install poppler` on macOS, `apt install poppler-utils` on Debian/Ubuntu)
-- A job-app account: you create it the first time you sign in
+- A Job Hunt AI account: you create it the first time you sign in
 
 The plugin checks these when a session starts and tells you what is missing.
 It keeps its own small Python environment in its data folder; nothing is
