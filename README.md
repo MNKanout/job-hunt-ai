@@ -4,7 +4,7 @@
 
 It's a [Claude Code](https://claude.com/claude-code) plugin. It runs in your own Claude Code, on your own Claude plan.
 
-**Website:** [job-hunt-ai.syrwegian.com](https://job-hunt-ai.syrwegian.com), where you can watch the agents at work and see the plans.
+**Website:** [jobhunt.syrwegian.com](https://jobhunt.syrwegian.com), where you can watch the agents at work and see the plans.
 
 ## Get started
 
