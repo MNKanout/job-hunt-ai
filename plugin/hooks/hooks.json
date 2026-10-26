@@ -13,7 +13,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "mcp__plugin_job-hunt-ai_playwright__browser_run_code_unsafe",
+        "matcher": "mcp__plugin_job-hunt-ai_.*__browser_run_code_unsafe",
         "hooks": [
           {
             "type": "command",

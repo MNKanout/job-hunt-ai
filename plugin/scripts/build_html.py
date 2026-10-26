@@ -346,7 +346,7 @@ def request_pending_prints() -> None:
     # Not a failure: the build carries on once the agent has printed.
     end_task()
     print(json.dumps({"status": "needs_print", "print_code_file": str(code_file), "prints": _pending_prints,
-                      "message": "Run print_code_file with the Playwright run-code tool, then run this command again."}))
+                      "message": "Run print_code_file with the print browser's run-code tool, then run this command again."}))
     sys.exit(0)
 
 

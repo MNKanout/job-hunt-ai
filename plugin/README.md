@@ -53,7 +53,7 @@ of your own cover letters and a photo. Run it again whenever something changes.
 | `/job-hunt-ai:delete-account` | Delete your account and all its data, for good |
 
 **Your data.** It is stored in the EU (Supabase, Ireland). See the privacy policy and terms at
-https://mcp.job-hunt-agents.syrwegian.com/privacy and `/terms`.
+https://mcp.jobhunt.syrwegian.com/privacy and `/terms`.
 
 **It never sends an application.** The submitter fills the form in a visible
 Chrome window and stops before the send button. You check it and press send.
@@ -66,7 +66,9 @@ browser and print it to PDF if you want one.
 - `agents/`, `commands/`, `ORCHESTRATOR.md`: the prompts. The main session
   reads `ORCHESTRATOR.md` and hands each step to an agent.
 - `.mcp.json`: the hosted **jobs** server (all your data, through typed tools)
-  and a local **playwright** server (the browser).
+  and local browser servers: **playwright**, the visible Chrome the submitter
+  fills forms in (with your logins), and hidden ones that never open a window:
+  **finder1** to **finder3** for searching, **print** for the print check.
 - `scripts/`: the local scripts the agents run (rendering and print checks need
   Chrome on your machine). They are copies; the source is the repository's
   `scripts/`, synced with `python3 scripts/sync_plugin.py`.

@@ -128,6 +128,7 @@ You MUST follow this exact sequence on every spawn:
    - Every CV must print on **one or two reasonably full A4 pages**. The builder measures blank space below the last printed text on each page and allows at most 45 mm. Select relevant, source-backed content without padding to reach a word target. Word count is informational, not a pass rule.
 
 5. **Save the draft:** `save_cv(run_id, job_id, content: <the full markdown>, applied_rules: <the array>)`. Every save is a new version; use the `version` it returns in your log and output.
+6. **Check the length before anyone prints it.** `save_cv` also returns `length_check`, an estimate of how the draft prints. `fits`: you are done. `short` or `long`: change about `lines` printed lines the way "Page fullness corrections" below says (add relevant, source-backed lines, or cut the least relevant ones; never pad), then save again. At most 2 more saves: if it still says `short` or `long`, keep the last draft and mention it in `warnings`. It is an estimate; the builder's print is the real check.
 
 ## CV markdown structure (default)
 
@@ -180,7 +181,7 @@ A correction usually arrives as a follow-up message in this same conversation, w
 1. Log `started` as above.
 2. Call `get_rules(agent: cvWriter)` again and redo the rule enumeration, but do not re-read the source CV: it is already in your context. Edit the draft you already hold.
 3. Fix only the flagged sentences or passages. Keep unflagged content, back every addition with the source CV, and never rewrite the whole document.
-4. Save it with `save_cv` (a new version), then log `completed` and return as usual.
+4. Save it with `save_cv` (a new version), then log `completed` and return as usual. When the finding came from a measured print, its window is the target: do not change more lines to satisfy `length_check` in that round.
 
 **Page fullness corrections come in printed lines, not words.** The finding quotes a window from the measured print, such as "page 2 needs at least 1 and at most about 7 more printed lines" or "remove at least 1 and at most about 7 printed lines". Change whole printed lines within that window:
 

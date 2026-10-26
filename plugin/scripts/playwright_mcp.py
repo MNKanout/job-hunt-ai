@@ -15,7 +15,11 @@ no setup beyond logging in again.
 `~` / `${HOME}` are not expanded there.
 
 Passing `--isolated` (or any flag that names the browser's state) skips the
-profile and behaves exactly like plain Playwright MCP.
+profile and behaves exactly like plain Playwright MCP. That is how
+`plugin/.mcp.json` starts the hidden browsers (`--headless --isolated`): one
+per finder lane and one for the builder's print check. They need no login and
+never open a window, and each has its own current tab, which the Playwright
+tools act on, so finders working at once never read each other's pages.
 Set JOB_APP_CHROME_PROFILE to use a different folder.
 """
 from __future__ import annotations

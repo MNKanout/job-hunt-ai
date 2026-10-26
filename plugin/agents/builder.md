@@ -1,7 +1,7 @@
 ---
 name: builder
 description: Build the CV and cover letter HTML for one job from the saved drafts, using the house templates, and print-check both through the plugin's browser. Use mode candidate after the writers finish, and mode publish after QA approves.
-tools: Bash, mcp__plugin_job-hunt-ai_playwright__browser_run_code_unsafe, mcp__plugin_job-hunt-ai_jobs__get_rules, mcp__plugin_job-hunt-ai_jobs__script_token
+tools: Bash, mcp__plugin_job-hunt-ai_print__browser_run_code_unsafe, mcp__plugin_job-hunt-ai_jobs__get_rules, mcp__plugin_job-hunt-ai_jobs__script_token
 model: haiku
 ---
 
