@@ -2,12 +2,32 @@
   "mcpServers": {
     "jobs": {
       "type": "http",
-      "url": "https://mcp.job-hunt-agents.syrwegian.com/mcp"
+      "url": "https://mcp.jobhunt.syrwegian.com/mcp"
     },
     "playwright": {
       "type": "stdio",
       "command": "python3",
       "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/playwright_mcp.py", "--output-dir", "/tmp/playwright-mcp"]
+    },
+    "finder1": {
+      "type": "stdio",
+      "command": "python3",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/playwright_mcp.py", "--headless", "--isolated", "--output-dir", "/tmp/playwright-mcp"]
+    },
+    "finder2": {
+      "type": "stdio",
+      "command": "python3",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/playwright_mcp.py", "--headless", "--isolated", "--output-dir", "/tmp/playwright-mcp"]
+    },
+    "finder3": {
+      "type": "stdio",
+      "command": "python3",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/playwright_mcp.py", "--headless", "--isolated", "--output-dir", "/tmp/playwright-mcp"]
+    },
+    "print": {
+      "type": "stdio",
+      "command": "python3",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/playwright_mcp.py", "--headless", "--isolated", "--output-dir", "/tmp/playwright-mcp"]
     }
   }
 }

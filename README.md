@@ -25,7 +25,7 @@ All the commands are in [plugin/README.md](plugin/README.md).
 
 ## Your data
 
-Your data is stored in the EU, behind your login. The plugin never sends an application for you. See the [privacy policy](https://mcp.job-hunt-agents.syrwegian.com/privacy) and [terms](https://mcp.job-hunt-agents.syrwegian.com/terms).
+Your data is stored in the EU, behind your login. The plugin never sends an application for you. See the [privacy policy](https://mcp.jobhunt.syrwegian.com/privacy) and [terms](https://mcp.jobhunt.syrwegian.com/terms).
 
 ## License
 
