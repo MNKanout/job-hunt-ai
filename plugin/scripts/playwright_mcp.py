@@ -21,6 +21,11 @@ per finder lane and one for the builder's print check. They need no login and
 never open a window, and each has its own current tab, which the Playwright
 tools act on, so finders working at once never read each other's pages.
 Set JOB_APP_CHROME_PROFILE to use a different folder.
+
+Each hidden browser also passes `--lane <name>`. Claude Code loads only one of
+several servers with the same command line, so without it only the first
+finder started and the print check had no browser. The lane is dropped here,
+before Playwright sees it.
 """
 from __future__ import annotations
 
@@ -54,9 +59,23 @@ def ensure_profile(path: Path) -> Path:
     return path
 
 
+def without_lane(args: list[str]) -> list[str]:
+    """The args minus `--lane <name>` / `--lane=<name>`, which only Claude Code reads."""
+    out, skip = [], False
+    for arg in args:
+        if skip:
+            skip = False
+        elif arg == "--lane":
+            skip = True
+        elif not arg.startswith("--lane="):
+            out.append(arg)
+    return out
+
+
 def server_argv(args: list[str], env: dict[str, str] | None = None) -> list[str]:
     """The npx command line for the given pass-through args."""
-    flags = {arg.split("=", 1)[0] for arg in args}
+    args = without_lane(args)
+    flags ={arg.split("=", 1)[0] for arg in args}
     if flags & OWN_BROWSER_FLAGS:
         return ["npx", PACKAGE, *args]
     return ["npx", PACKAGE, "--user-data-dir", str(ensure_profile(profile_dir(env))), *args]
