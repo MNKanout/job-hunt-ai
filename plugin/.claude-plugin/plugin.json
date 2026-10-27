@@ -1,9 +1,10 @@
 {
   "name": "job-hunt-ai",
   "displayName": "Job Hunt AI",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Finds jobs, tailors your CV and cover letter for each one, fact-checks them against your real CV, builds print-ready HTML and fills the application form for you to send. Your data lives on the hosted Job Hunt AI server; sign in with /mcp.",
   "author": { "name": "Nour Kanout", "url": "https://github.com/MNKanout" },
+  "icon": "./logo.png",
   "homepage": "https://jobhunt.syrwegian.com",
   "repository": "https://github.com/MNKanout/job-hunt-ai",
   "license": "PolyForm-Noncommercial-1.0.0",
